@@ -5,7 +5,20 @@
 # See documentation in:
 # https://doc.scrapy.org/en/latest/topics/spider-middleware.html
 
+import random
+import base64
 from scrapy import signals
+from scrapy.downloadermiddlewares.useragent import UserAgentMiddleware
+from test_spider.ip_pool import get_kdl_ip
+
+ip, _ = get_kdl_ip()
+# 快代理账号密码
+kdl_admin = 'chuichui1901'
+kdl_pass = 'vplygo03'
+# 换ip阈值
+threshold = 3
+# 此ip异常次数
+fail_time = 0
 
 
 class TestSpiderMiddleware(object):
@@ -69,24 +82,23 @@ class TestSpiderDownloaderMiddleware(object):
         return s
 
     def process_request(self, request, spider):
-        # Called for each request that goes through the downloader
-        # middleware.
-
-        # Must either:
-        # - return None: continue processing this request
-        # - or return a Response object
-        # - or return a Request object
-        # - or raise IgnoreRequest: process_exception() methods of
-        #   installed downloader middleware will be called
-        return None
+        proxy_url = 'http://%s:%s@%s' % (kdl_admin, kdl_pass, ip)
+        request.meta['proxy'] = proxy_url  # 设置代理
+        spider.logger.debug("using proxy: {}".format(request.meta['proxy']))
+        # 设置代理身份认证
+        # Python3 写法
+        auth = "Basic %s" % (base64.b64encode(('%s:%s' % (kdl_admin, kdl_pass)).encode('utf-8'))).decode('utf-8')
+        # Python2 写法
+        # auth = "Basic " + base64.b64encode('%s:%s' % (username, password))
+        request.headers['Proxy-Authorization'] = auth
 
     def process_response(self, request, response, spider):
-        # Called with the response returned from the downloader.
-
-        # Must either;
-        # - return a Response object
-        # - return a Request object
-        # - or raise IgnoreRequest
+        global fail_time, ip, threshold
+        if not (200 <= response.status < 300):
+            fail_time += 1
+            if fail_time >= threshold:
+                proxy = get_kdl_ip()
+                fail_time = 0
         return response
 
     def process_exception(self, request, exception, spider):
@@ -101,3 +113,16 @@ class TestSpiderDownloaderMiddleware(object):
 
     def spider_opened(self, spider):
         spider.logger.info('Spider opened: %s' % spider.name)
+
+
+class AgentMiddleware(UserAgentMiddleware):
+    """
+        User-Agent中间件, 设置User-Agent
+    """
+
+    def __init__(self, user_agent=''):
+        self.user_agent = user_agent
+
+    def process_request(self, request, spider):
+        ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.10; rv:39.0) Gecko/20100101 Firefox/39.0'
+        request.headers.setdefault('User-Agent', ua)
